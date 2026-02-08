@@ -22,6 +22,7 @@ export const TodoItem: React.FC<Props> = ({ todo, isPending = false }) => {
           type="checkbox"
           className="todo__status"
           checked={todo.completed}
+          disabled={isPending}
           readOnly
         />
       </label>
@@ -30,7 +31,13 @@ export const TodoItem: React.FC<Props> = ({ todo, isPending = false }) => {
         {todo.title}
       </span>
 
-      <button type="button" className="todo__remove" data-cy="TodoDelete">
+      <button
+        type="button"
+        className="todo__remove"
+        data-cy="TodoDelete"
+        disabled={isPending}
+        aria-busy={isPending}
+      >
         ×
       </button>
 

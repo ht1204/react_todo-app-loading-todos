@@ -31,8 +31,9 @@ export const App: React.FC = () => {
   );
   const [errorMessage, setErrorMessage] = useState('');
   const [isErrorVisible, setIsErrorVisible] = useState(false);
-  // const [pendingIds, setPendingIds] = useState<number[]>([]);
-  const pendingIds: number[] = [];
+  // pendingIds will be used in Part 2 for add/delete/update operations
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [pendingIds, setPendingIds] = useState<number[]>([]);
 
   useEffect(() => {
     // Hide notification before making request
@@ -60,6 +61,17 @@ export const App: React.FC = () => {
 
   const handleCloseError = () => {
     setIsErrorVisible(false);
+  };
+
+  const handleCreateTodo = async (title: string) => {
+    // Hide notification before request
+    setIsErrorVisible(false);
+
+    // This is a placeholder for Part 2 (Add and Delete)
+    // For now, just show an error that this feature is not implemented
+    setErrorMessage(`Cannot add "${title}" - feature not implemented yet`);
+    setIsErrorVisible(true);
+    throw new Error('Not implemented');
   };
 
   const filteredTodos = useMemo(() => {
@@ -98,16 +110,18 @@ export const App: React.FC = () => {
       <div className="todoapp__content">
         <header className="todoapp__header">
           {/* this button should have `active` class only if all todos are completed */}
-          <button
-            type="button"
-            className={classNames('todoapp__toggle-all', {
-              active: todos.length > 0 && activeTodosCount === 0,
-            })}
-            data-cy="ToggleAllButton"
-          />
+          {todos.length > 0 && (
+            <button
+              type="button"
+              className={classNames('todoapp__toggle-all', {
+                active: activeTodosCount === 0,
+              })}
+              data-cy="ToggleAllButton"
+            />
+          )}
 
           {/* Add a todo on form submit */}
-          <NewTodoField />
+          <NewTodoField onCreate={handleCreateTodo} />
         </header>
 
         {todos.length > 0 && (
