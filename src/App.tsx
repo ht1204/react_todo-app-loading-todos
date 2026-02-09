@@ -1,103 +1,151 @@
 /* eslint-disable jsx-a11y/label-has-associated-control */
 /* eslint-disable jsx-a11y/control-has-associated-label */
-import React, { useEffect, useState, useMemo } from 'react';
-import classNames from 'classnames';
+import React, { useState, useEffect, useMemo } from 'react';
 import { UserWarning } from './UserWarning';
-import { USER_ID, getTodos, setUserId } from './api/todos';
+import {
+  USER_ID,
+  getTodos,
+  createTodo,
+  updateTodo,
+  deleteTodo,
+} from './api/todos';
 import { Todo } from './types/Todo';
+import { FilterType, ErrorMessages } from './types/enum_utils';
+import { Header } from './components/Header';
 import { TodoList } from './components/TodoList';
-import { Filter, FilterStatus } from './components/Filter';
-import { NewTodoField } from './components/NewTodoField';
-
-// Read userId from localStorage and set it
-const userJson = localStorage.getItem('user');
-
-if (userJson) {
-  try {
-    const user = JSON.parse(userJson);
-
-    if (user && user.id) {
-      setUserId(user.id);
-    }
-  } catch (error) {
-    // Invalid JSON, ignore
-  }
-}
+import { Footer } from './components/Footer';
+import { ErrorNotification } from './components/ErrorNotification';
 
 export const App: React.FC = () => {
   const [todos, setTodos] = useState<Todo[]>([]);
-  const [filterStatus, setFilterStatus] = useState<FilterStatus>(
-    FilterStatus.All,
-  );
-  const [errorMessage, setErrorMessage] = useState('');
-  const [isErrorVisible, setIsErrorVisible] = useState(false);
-  // pendingIds will be used in Part 2 for add/delete/update operations
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const [pendingIds, setPendingIds] = useState<number[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [filter, setFilter] = useState<FilterType>(FilterType.All);
+  const [title, setTitle] = useState('');
+  const [tempTodos, setTempTodos] = useState<number[]>([]);
+
+  // Helper to show errors with timer
+  const showError = (msg: ErrorMessages) => {
+    setError(msg);
+    setTimeout(() => setError(null), 3000);
+  };
 
   useEffect(() => {
-    // Hide notification before making request
-    setIsErrorVisible(false);
-
+    setLoading(true);
     getTodos()
       .then(setTodos)
-      .catch(() => {
-        setErrorMessage('Unable to load todos');
-        setIsErrorVisible(true);
-      });
+      .catch(() => showError(ErrorMessages.Load))
+      .finally(() => setLoading(false));
   }, []);
 
-  useEffect(() => {
-    if (isErrorVisible) {
-      const timer = setTimeout(() => {
-        setIsErrorVisible(false);
-      }, 3000);
+  const visibleTodos = useMemo(() => {
+    return todos.filter(todo => {
+      switch (filter) {
+        case FilterType.Active:
+          return !todo.completed;
+        case FilterType.Completed:
+          return todo.completed;
+        default:
+          return true;
+      }
+    });
+  }, [todos, filter]);
 
-      return () => clearTimeout(timer);
+  const toggleAll = () => {
+    const activeTodos = todos.filter(todo => !todo.completed);
+    const shouldBeCompleted = activeTodos.length > 0;
+    const todosToUpdate = todos.filter(
+      todo => todo.completed !== shouldBeCompleted,
+    );
+
+    if (todosToUpdate.length === 0) {
+      return;
     }
 
-    return undefined;
-  }, [isErrorVisible]);
+    setTempTodos(todosToUpdate.map(t => t.id));
+    const promises = todosToUpdate.map(todo =>
+      updateTodo({ ...todo, completed: shouldBeCompleted }),
+    );
 
-  const handleCloseError = () => {
-    setIsErrorVisible(false);
+    Promise.all(promises)
+      .then(() => {
+        setTodos(currentTodos =>
+          currentTodos.map(todo =>
+            todo.completed !== shouldBeCompleted
+              ? { ...todo, completed: shouldBeCompleted }
+              : todo,
+          ),
+        );
+      })
+      .catch(() => showError(ErrorMessages.Update))
+      .finally(() => setTempTodos([]));
   };
 
-  const handleCreateTodo = async (title: string) => {
-    // Hide notification before request
-    setIsErrorVisible(false);
+  const handleSubmit = (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!title.trim()) {
+      showError(ErrorMessages.EmptyTitle);
 
-    // This is a placeholder for Part 2 (Add and Delete)
-    // For now, just show an error that this feature is not implemented
-    setErrorMessage(`Cannot add "${title}" - feature not implemented yet`);
-    setIsErrorVisible(true);
-    throw new Error('Not implemented');
-  };
-
-  const filteredTodos = useMemo(() => {
-    switch (filterStatus) {
-      case FilterStatus.Active:
-        return todos.filter(todo => !todo.completed);
-      case FilterStatus.Completed:
-        return todos.filter(todo => todo.completed);
-      default:
-        return todos;
+      return;
     }
-  }, [todos, filterStatus]);
 
-  const activeTodosCount = useMemo(
-    () => todos.filter(todo => !todo.completed).length,
-    [todos],
-  );
+    setLoading(true);
+    setError(null);
 
-  const hasCompletedTodos = useMemo(
-    () => todos.some(todo => todo.completed),
-    [todos],
-  );
+    createTodo({
+      userId: USER_ID,
+      title: title.trim(),
+      completed: false,
+    })
+      .then(newTodo => {
+        setTodos([...todos, newTodo]);
+        setTitle('');
+      })
+      .catch(() => showError(ErrorMessages.Add))
+      .finally(() => setLoading(false));
+  };
 
-  const itemsLeftText = `${activeTodosCount} ${
-    activeTodosCount === 1 ? 'item' : 'items'
-  } left`;
+  const handleUpdate = (todo: Todo) => {
+    setTempTodos(prev => [...prev, todo.id]);
+    updateTodo({ ...todo, completed: !todo.completed })
+      .then(updatedTodo => {
+        setTodos(currentTodos =>
+          currentTodos.map(t => (t.id === todo.id ? updatedTodo : t)),
+        );
+      })
+      .catch(() => showError(ErrorMessages.Update))
+      .finally(() => setTempTodos(prev => prev.filter(id => id !== todo.id)));
+  };
+
+  const handleDelete = (todoId: number) => {
+    setTempTodos(prev => [...prev, todoId]);
+    deleteTodo(todoId)
+      .then(() => {
+        setTodos(currentTodos =>
+          currentTodos.filter(todo => todo.id !== todoId),
+        );
+      })
+      .catch(() => showError(ErrorMessages.Delete))
+      .finally(() => setTempTodos(prev => prev.filter(id => id !== todoId)));
+  };
+
+  const clearCompleted = () => {
+    const idsToDelete = todos.filter(t => t.completed).map(t => t.id);
+
+    if (idsToDelete.length === 0) {
+      return;
+    }
+
+    setTempTodos(prev => [...prev, ...idsToDelete]);
+    Promise.all(idsToDelete.map(id => deleteTodo(id)))
+      .then(() => {
+        setTodos(currentTodos => currentTodos.filter(t => !t.completed));
+      })
+      .catch(() => showError(ErrorMessages.Delete))
+      .finally(() => {
+        setTempTodos(prev => prev.filter(id => !idsToDelete.includes(id)));
+      });
+  };
 
   if (!USER_ID) {
     return <UserWarning />;
@@ -108,74 +156,35 @@ export const App: React.FC = () => {
       <h1 className="todoapp__title">todos</h1>
 
       <div className="todoapp__content">
-        <header className="todoapp__header">
-          {/* this button should have `active` class only if all todos are completed */}
-          {todos.length > 0 && (
-            <button
-              type="button"
-              className={classNames('todoapp__toggle-all', {
-                active: activeTodosCount === 0,
-              })}
-              data-cy="ToggleAllButton"
-            />
-          )}
-
-          {/* Add a todo on form submit */}
-          <NewTodoField onCreate={handleCreateTodo} />
-        </header>
+        <Header
+          todos={todos}
+          title={title}
+          setTitle={setTitle}
+          loading={loading}
+          onAdd={handleSubmit}
+          onToggleAll={toggleAll}
+        />
 
         {todos.length > 0 && (
           <>
-            <TodoList todos={filteredTodos} pendingIds={pendingIds} />
+            <TodoList
+              todos={visibleTodos}
+              tempTodos={tempTodos}
+              onDelete={handleDelete}
+              onUpdate={handleUpdate}
+            />
 
-            {/* Hide the footer if there are no todos */}
-            <footer className="todoapp__footer" data-cy="Footer">
-              <span className="todo-count" data-cy="TodosCounter">
-                {itemsLeftText}
-              </span>
-
-              {/* Active link should have the 'selected' class */}
-              <Filter
-                filterStatus={filterStatus}
-                onFilterChange={setFilterStatus}
-              />
-
-              {/* this button should be disabled if there are no completed todos */}
-              <button
-                type="button"
-                className="todoapp__clear-completed"
-                data-cy="ClearCompletedButton"
-                disabled={!hasCompletedTodos}
-              >
-                Clear completed
-              </button>
-            </footer>
+            <Footer
+              todos={todos}
+              filter={filter}
+              setFilter={setFilter}
+              onClearCompleted={clearCompleted}
+            />
           </>
         )}
       </div>
 
-      {/* DON'T use conditional rendering to hide the notification */}
-      {/* Add the 'hidden' class to hide the message smoothly */}
-      <div
-        data-cy="ErrorNotification"
-        className={classNames(
-          'notification',
-          'is-danger',
-          'is-light',
-          'has-text-weight-normal',
-          {
-            hidden: !isErrorVisible,
-          },
-        )}
-      >
-        <button
-          data-cy="HideErrorButton"
-          type="button"
-          className="delete"
-          onClick={handleCloseError}
-        />
-        {errorMessage}
-      </div>
+      <ErrorNotification error={error} onClose={() => setError(null)} />
     </div>
   );
 };
